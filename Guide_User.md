@@ -44,12 +44,3 @@ poids : Poids en kg
 batterie : Tension batterie (V)
 temperature : Température °C
 
-
-🎨 AMÉLIORATIONS POSSIBLES
-Version avancée
-
-RTC externe (DS3231) : Horodatage précis
-Capteur température/humidité (DHT22) : Conditions météo
-Notification push : Alerte variation poids > 5kg
-Multi-ruches : Plusieurs balances sur même réseau
-Stockage cloud : Backup automatique données
