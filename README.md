@@ -1,11 +1,19 @@
 # Balance_Peter
 📱 APPLICATION RELEVÉ POIDS RUCHE
-Balance Connectée ESP32-C3 + HX711🎯 PROJET COMPLETCréer un système de pesée de ruche accessible via smartphone, sans Internet, avec historique et graphiques.📋 MATÉRIEL NÉCESSAIREComposants électroniquesComposantQuantitéPrix unitaireLien exempleESP32-C3 SuperMini1~2€AliExpressModule HX7111~1€AliExpressCellules de charge 50kg4~3€/pièceAliExpressBatterie LiPo 2000mAh1~3€AmazonModule TP4056 (charge)1~0,50€AliExpressPanneau solaire 5V 1W1~3€AliExpressBoîtier étanche1~5€LocalTotal : ~30-35€Structure mécanique
+Balance Connectée ESP32-C3 + HX711🎯 PROJET COMPLET
+Créer un système de pesée de ruche accessible via smartphone, sans Internet, avec historique et graphiques.
+📋 MATÉRIEL NÉCESSAIRE
+ESP32-C3 SuperMini1~2€AliExpressModule 
+HX7111~1€AliExpressCellules de charge 50kg4~3€/pièceAliExpress
+Batterie LiPo 2000mAh1~3€AmazonModule TP4056 (charge)1~0,50€AliExpress
+Panneau solaire 5V 1W1~3€AliExpress
+Boîtier étanche1~5€LocalTotal : ~30-35€Structure mécanique
 Plateau en bois/métal (40x40cm minimum)
 Support pour ruche
 Protection intempéries
 Câblage résistant UV
-🔌 SCHÉMA DE CÂBLAGE┌─────────────────────────────────────────────────┐
+🔌 SCHÉMA DE CÂBLAGE
+┌─────────────────────────────────────────────────┐
 │              ESP32-C3 SuperMini                 │
 ├─────────────────────────────────────────────────┤
 │                                                 │
