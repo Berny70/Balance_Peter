@@ -28,75 +28,72 @@ Câblage résistant UV
 🔌 SCHÉMA DE CÂBLAGE
 
 
-│              ESP32-C3 SuperMini                 
+              ESP32-C3 SuperMini                 
 
-│  GPIO 2  ──→ HX711 DT (Data)                
+  GPIO 2  ──→ HX711 DT (Data)                
 
-│  GPIO 3  ──→ HX711 SCK (Clock)              
+  GPIO 3  ──→ HX711 SCK (Clock)              
 
-│  GPIO 4  ──→ Bouton Tare (+ pull-down 10kΩ
+  GPIO 4  ──→ Bouton Tare (+ pull-down 10kΩ
 
-│  GPIO 10 ──→ Bouton Relevé (+ pull-down 10kΩ)  
+  GPIO 10 ──→ Bouton Relevé (+ pull-down 10kΩ)  
 
-│  ADC (GPIO 0) ──→ Batterie (diviseur tension)  
+  ADC (GPIO 0) ──→ Batterie (diviseur tension)  
 
-│  GND     ──→ Masse commune                     
+  GND     ──→ Masse commune                     
 
-│  3.3V    ──→ HX711 VCC                         
+  3.3V    ──→ HX711 VCC                         
 
-│                                    
-│                  HX711 Module                 
+                                    
+                  HX711 Module                 
 
+  E+  ──→ Rouge cellules (toutes en parallèle)  
 
+  E-  ──→ Noir cellules (toutes en parallèle)   
 
-│  E+  ──→ Rouge cellules (toutes en parallèle)  
+  A+  ──→ Blanc cellules (signal+)              
 
-│  E-  ──→ Noir cellules (toutes en parallèle)   
-
-│  A+  ──→ Blanc cellules (signal+)              
-
-│  A-  ──→ Vert cellules (signal-)               
+  A-  ──→ Vert cellules (signal-)               
 
 
-
-│            4 Cellules de charge                 
-
-
-│  Montage en pont de Wheatstone                 
-
-│                                                 
-
-│     [C1]────────[C2]                           
-
-│      │           │                              
-
-│      │           │                              
-
-│     [C3]────────[C4]                           
-
-│                                                 
-
-│  Toutes rouges ensemble (E+)                   
-
-│  Toutes noires ensemble (E-)                   
-
-│  Blancs en série → A+                          
-
-│  Verts en série → A-                           
+            4 Cellules de charge                 
 
 
-│              Alimentation                       
+  Montage en pont de Wheatstone                 
+
+                                              
+
+     [C1]────────[C2]                           
+
+      │           │                              
+
+      │           │                              
+
+     [C3]────────[C4]                           
+
+                                                 
+
+  Toutes rouges ensemble (E+)                   
+
+  Toutes noires ensemble (E-)                   
+
+  Blancs en série → A+                          
+
+  Verts en série → A-                           
 
 
-│  Panneau 5V ──→ TP4056 IN+                     
+              Alimentation                       
 
-│  Panneau GND ──→ TP4056 IN-                    
 
-│  TP4056 BAT+ ──→ LiPo +                        
+  Panneau 5V ──→ TP4056 IN+                     
 
-│  TP4056 BAT- ──→ LiPo -                        
+  Panneau GND ──→ TP4056 IN-                    
 
-│  TP4056 OUT+ ──→ ESP32 5V                      
+  TP4056 BAT+ ──→ LiPo +                        
 
-│  TP4056 OUT- ──→ ESP32 GND         
+  TP4056 BAT- ──→ LiPo -                        
+
+  TP4056 OUT+ ──→ ESP32 5V                      
+
+  TP4056 OUT- ──→ ESP32 GND         
 
