@@ -1,0 +1,557 @@
+/*
+ * ═══════════════════════════════════════════════════════════════════════
+ * BALANCE RUCHE CONNECTÉE - ESP32-C3 + HX711
+ * ═══════════════════════════════════════════════════════════════════════
+ * 
+ * Fonctionnalités:
+ * - Pesée précise avec 4 cellules de charge
+ * - Enregistrement automatique toutes les heures
+ * - Interface web smartphone avec graphiques
+ * - Deep sleep entre mesures
+ * - Export CSV des données
+ * - Calibration via interface web
+ * 
+ * ═══════════════════════════════════════════════════════════════════════
+ */
+
+#include <WiFi.h>
+#include <WebServer.h>
+#include <FFat.h>
+#include <FS.h>
+#include <HX711.h>
+#include <time.h>
+#include "esp_sleep.h"
+
+// ═══════════════════════════════════════════════════════════════════════
+// CONFIGURATION
+// ═══════════════════════════════════════════════════════════════════════
+
+// GPIO
+#define HX711_DT_PIN 2
+#define HX711_SCK_PIN 3
+#define BUTTON_TARE_PIN 4
+#define BUTTON_RELEVE_PIN 10
+#define BATTERY_ADC_PIN 0
+
+// WiFi Access Point
+#define AP_SSID "Balance-Ruche"
+#define AP_PASSWORD "ruche2026"
+
+// Paramètres pesée
+#define CALIBRATION_FACTOR -7050.0  // À ajuster selon calibration
+#define SAMPLES_AVERAGE 10           // Nombre lectures moyennées
+#define MEASUREMENT_INTERVAL_SEC 3600 // 1 heure
+
+// Timeouts
+#define WEB_TIMEOUT_MS 180000  // 3 minutes
+#define TARE_TIMEOUT_MS 5000   // 5 secondes
+
+// Batterie
+#define BATTERY_MIN_VOLTAGE 3.3
+
+// ═══════════════════════════════════════════════════════════════════════
+// VARIABLES GLOBALES
+// ═══════════════════════════════════════════════════════════════════════
+
+HX711 scale;
+WebServer server(80);
+
+RTC_DATA_ATTR int bootCount = 0;
+RTC_DATA_ATTR unsigned long lastMeasurementTime = 0;
+RTC_DATA_ATTR float calibrationFactor = CALIBRATION_FACTOR;
+RTC_DATA_ATTR float taraOffset = 0;
+
+bool webServerActive = false;
+unsigned long webServerStartTime = 0;
+
+struct Measurement {
+  unsigned long timestamp;
+  float weight;
+  float battery;
+  float temperature;
+};
+
+// ═══════════════════════════════════════════════════════════════════════
+// SETUP
+// ═══════════════════════════════════════════════════════════════════════
+
+void setup() {
+  Serial.begin(115200);
+  delay(100);
+  
+  bootCount++;
+  
+  Serial.println("\n===========================================");
+  Serial.println("  Balance Ruche Connectee v1.0");
+  Serial.println("===========================================");
+  Serial.printf("Boot #%d\n", bootCount);
+  
+  // Configuration pins
+  pinMode(BUTTON_TARE_PIN, INPUT_PULLDOWN);
+  pinMode(BUTTON_RELEVE_PIN, INPUT_PULLDOWN);
+  
+  // Vérifier batterie
+  if (!verifierBatterie()) {
+    Serial.println("Batterie critique - Sleep 24h");
+    esp_sleep_enable_timer_wakeup(24ULL * 3600 * 1000000);
+    esp_deep_sleep_start();
+  }
+  
+  // Initialiser balance
+  initBalance();
+  
+  // Déterminer mode
+  esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+  
+  if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1) {
+    uint64_t wakeup_pin = esp_sleep_get_ext1_wakeup_status();
+    
+    if (wakeup_pin & (1ULL << BUTTON_TARE_PIN)) {
+      Serial.println("MODE TARE");
+      modeTare();
+    } 
+    else if (wakeup_pin & (1ULL << BUTTON_RELEVE_PIN)) {
+      Serial.println("MODE RELEVE");
+      modeReleve();
+    }
+  } 
+  else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
+    Serial.println("MODE PESEE AUTO");
+    modePeseeAuto();
+  }
+  else {
+    Serial.println("PREMIER DEMARRAGE");
+    if (!initFFat()) {
+      Serial.println("ERREUR FFat");
+    } else {
+      Serial.println("Systeme initialise");
+    }
+  }
+  
+  configurerDeepSleep();
+}
+
+void loop() {
+  if (webServerActive) {
+    server.handleClient();
+    
+    if (millis() - webServerStartTime > WEB_TIMEOUT_MS) {
+      Serial.println("Timeout - Retour sleep");
+      arreterServeurWeb();
+      configurerDeepSleep();
+    }
+  }
+  delay(10);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// INITIALISATION BALANCE
+// ═══════════════════════════════════════════════════════════════════════
+
+void initBalance() {
+  Serial.println("Init HX711...");
+  scale.begin(HX711_DT_PIN, HX711_SCK_PIN);
+  
+  if (!scale.is_ready()) {
+    Serial.println("ERREUR: HX711 non detecte");
+    return;
+  }
+  
+  scale.set_scale(calibrationFactor);
+  scale.set_offset(taraOffset);
+  
+  Serial.println("Balance prete");
+  Serial.printf("Calibration: %.2f\n", calibrationFactor);
+  Serial.printf("Tare: %.2f\n", taraOffset);
+}
+
+float lirePoids() {
+  if (!scale.is_ready()) {
+    Serial.println("Balance non prete");
+    return -1;
+  }
+  
+  // Moyenne de plusieurs lectures
+  float weight = 0;
+  for (int i = 0; i < SAMPLES_AVERAGE; i++) {
+    weight += scale.get_units();
+    delay(100);
+  }
+  weight /= SAMPLES_AVERAGE;
+  
+  return weight;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// MODE TARE (REMISE À ZÉRO)
+// ═══════════════════════════════════════════════════════════════════════
+
+void modeTare() {
+  Serial.println("\n--- MODE TARE ---");
+  
+  Serial.println("Stabilisation...");
+  delay(2000);
+  
+  Serial.println("Calcul offset...");
+  scale.tare(SAMPLES_AVERAGE * 2);
+  taraOffset = scale.get_offset();
+  
+  Serial.printf("Nouveau offset: %.2f\n", taraOffset);
+  Serial.println("Tare effectuee");
+  
+  // Confirmer par clignotement LED si disponible
+  for (int i = 0; i < 5; i++) {
+    delay(200);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// MODE PESÉE AUTOMATIQUE
+// ═══════════════════════════════════════════════════════════════════════
+
+void modePeseeAuto() {
+  Serial.println("\n--- MODE PESEE AUTO ---");
+  
+  if (!initFFat()) {
+    Serial.println("ERREUR FFat");
+    return;
+  }
+  
+  // Lecture poids
+  Serial.println("Lecture poids...");
+  float weight = lirePoids();
+  
+  if (weight < 0) {
+    Serial.println("ERREUR lecture");
+    FFat.end();
+    return;
+  }
+  
+  Serial.printf("Poids: %.2f kg\n", weight);
+  
+  // Sauvegarde
+  Measurement m;
+  m.timestamp = millis() / 1000;  // Secondes depuis boot
+  m.weight = weight;
+  m.battery = lireBatterie();
+  m.temperature = lireTemperature();
+  
+  if (sauvegarderMesure(m)) {
+    Serial.println("Mesure sauvegardee");
+    lastMeasurementTime = millis();
+  } else {
+    Serial.println("ERREUR sauvegarde");
+  }
+  
+  FFat.end();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// MODE RELEVÉ (INTERFACE WEB)
+// ═══════════════════════════════════════════════════════════════════════
+
+void modeReleve() {
+  Serial.println("\n--- MODE RELEVE ---");
+  
+  if (!initFFat()) {
+    Serial.println("ERREUR FFat");
+    return;
+  }
+  
+  // Démarrer WiFi AP
+  Serial.println("Demarrage WiFi AP...");
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(AP_SSID, AP_PASSWORD);
+  
+  Serial.printf("WiFi: %s\n", AP_SSID);
+  Serial.printf("IP: http://192.168.4.1\n");
+  
+  // Configurer serveur web
+  configurerServeurWeb();
+  server.begin();
+  
+  webServerActive = true;
+  webServerStartTime = millis();
+  
+  Serial.println("Serveur actif");
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// GESTION FICHIERS
+// ═══════════════════════════════════════════════════════════════════════
+
+bool initFFat() {
+  if (!FFat.begin(false)) {
+    Serial.println("Formatage FFat...");
+    FFat.format();
+    if (!FFat.begin(false)) {
+      return false;
+    }
+  }
+  
+  if (!FFat.exists("/data")) {
+    FFat.mkdir("/data");
+  }
+  
+  Serial.printf("FFat: %d MB\n", FFat.totalBytes()/(1024*1024));
+  return true;
+}
+
+bool sauvegarderMesure(Measurement m) {
+  File file = FFat.open("/data/mesures.csv", FILE_APPEND);
+  if (!file) {
+    Serial.println("ERREUR ouverture fichier");
+    return false;
+  }
+  
+  // Format CSV: timestamp,poids,batterie,temperature
+  char line[128];
+  snprintf(line, sizeof(line), "%lu,%.2f,%.2f,%.2f\n",
+           m.timestamp, m.weight, m.battery, m.temperature);
+  
+  file.print(line);
+  file.close();
+  
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// SERVEUR WEB
+// ═══════════════════════════════════════════════════════════════════════
+
+void configurerServeurWeb() {
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/api/current", HTTP_GET, handleCurrentWeight);
+  server.on("/api/history", HTTP_GET, handleHistory);
+  server.on("/api/export", HTTP_GET, handleExport);
+  server.on("/api/tare", HTTP_POST, handleTareAPI);
+  server.on("/api/calibrate", HTTP_POST, handleCalibrateAPI);
+  server.on("/api/delete", HTTP_POST, handleDeleteData);
+}
+
+void handleRoot() {
+  String html = "<!DOCTYPE html><html><head>";
+  html += "<meta charset=\"UTF-8\">";
+  html += "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">";
+  html += "<title>Balance Ruche</title>";
+  html += "<script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>";
+  html += "<style>";
+  html += "*{margin:0;padding:0;box-sizing:border-box}";
+  html += "body{font-family:sans-serif;background:linear-gradient(135deg,#f5af19,#f12711);min-height:100vh;padding:20px}";
+  html += ".card{background:#fff;border-radius:15px;padding:20px;margin:15px auto;max-width:800px;box-shadow:0 10px 30px rgba(0,0,0,.2)}";
+  html += "h1{text-align:center;margin-bottom:20px;color:#333}";
+  html += ".weight{font-size:48px;font-weight:bold;text-align:center;color:#f12711;margin:20px 0}";
+  html += ".stats{background:#f5f5f5;padding:15px;border-radius:10px;margin:10px 0}";
+  html += ".stats p{margin:5px 0;color:#666}";
+  html += ".btn{display:block;width:100%;padding:15px;border:none;border-radius:10px;font-size:16px;font-weight:bold;cursor:pointer;margin:10px 0}";
+  html += ".btn-primary{background:#2196f3;color:#fff}";
+  html += ".btn-success{background:#4caf50;color:#fff}";
+  html += ".btn-warning{background:#ff9800;color:#fff}";
+  html += ".btn-danger{background:#d32f2f;color:#fff}";
+  html += "#chart{margin:20px 0}";
+  html += "</style></head><body>";
+  
+  html += "<div class=\"card\">";
+  html += "<h1>Balance Ruche</h1>";
+  html += "<div class=\"weight\" id=\"currentWeight\">-- kg</div>";
+  html += "<div class=\"stats\">";
+  html += "<p><strong>Batterie:</strong> <span id=\"battery\">--</span></p>";
+  html += "<p><strong>Temperature:</strong> <span id=\"temp\">--</span></p>";
+  html += "<p><strong>Derniere mesure:</strong> <span id=\"lastUpdate\">--</span></p>";
+  html += "</div></div>";
+  
+  html += "<div class=\"card\">";
+  html += "<button class=\"btn btn-success\" onclick=\"refresh()\">Peser maintenant</button>";
+  html += "<button class=\"btn btn-warning\" onclick=\"tare()\">Tare (remise a zero)</button>";
+  html += "<button class=\"btn btn-primary\" onclick=\"exportData()\">Exporter donnees CSV</button>";
+  html += "</div>";
+  
+  html += "<div class=\"card\">";
+  html += "<h2>Historique (7 derniers jours)</h2>";
+  html += "<canvas id=\"chart\"></canvas>";
+  html += "</div>";
+  
+  html += "<script>";
+  html += "let chart;";
+  html += "function refresh(){";
+  html += "fetch('/api/current').then(r=>r.json()).then(d=>{";
+  html += "document.getElementById('currentWeight').textContent=d.weight.toFixed(2)+' kg';";
+  html += "document.getElementById('battery').textContent=d.battery.toFixed(2)+' V';";
+  html += "document.getElementById('temp').textContent=d.temperature.toFixed(1)+' C';";
+  html += "document.getElementById('lastUpdate').textContent=new Date().toLocaleString();";
+  html += "loadHistory();";
+  html += "});";
+  html += "}";
+  
+  html += "function loadHistory(){";
+  html += "fetch('/api/history').then(r=>r.json()).then(data=>{";
+  html += "if(chart)chart.destroy();";
+  html += "let ctx=document.getElementById('chart').getContext('2d');";
+  html += "chart=new Chart(ctx,{";
+  html += "type:'line',";
+  html += "data:{";
+  html += "labels:data.labels,";
+  html += "datasets:[{";
+  html += "label:'Poids (kg)',";
+  html += "data:data.weights,";
+  html += "borderColor:'#f12711',";
+  html += "backgroundColor:'rgba(241,39,17,0.1)',";
+  html += "tension:0.4";
+  html += "}]";
+  html += "},";
+  html += "options:{";
+  html += "responsive:true,";
+  html += "scales:{y:{beginAtZero:true}}";
+  html += "}";
+  html += "});";
+  html += "});";
+  html += "}";
+  
+  html += "function tare(){";
+  html += "if(confirm('Effectuer une tare (remise a zero) ?')){";
+  html += "fetch('/api/tare',{method:'POST'}).then(()=>{alert('Tare effectuee');refresh();});";
+  html += "}";
+  html += "}";
+  
+  html += "function exportData(){";
+  html += "window.open('/api/export');";
+  html += "}";
+  
+  html += "refresh();";
+  html += "setInterval(refresh,30000);";
+  html += "</script></body></html>";
+  
+  server.send(200, "text/html", html);
+}
+
+void handleCurrentWeight() {
+  float weight = lirePoids();
+  float battery = lireBatterie();
+  float temp = lireTemperature();
+  
+  String json = "{";
+  json += "\"weight\":" + String(weight, 2) + ",";
+  json += "\"battery\":" + String(battery, 2) + ",";
+  json += "\"temperature\":" + String(temp, 1);
+  json += "}";
+  
+  server.send(200, "application/json", json);
+}
+
+void handleHistory() {
+  File file = FFat.open("/data/mesures.csv", FILE_READ);
+  if (!file) {
+    server.send(200, "application/json", "{\"labels\":[],\"weights\":[]}");
+    return;
+  }
+  
+  // Lire dernières 168 mesures (7 jours * 24 heures)
+  String labels = "[";
+  String weights = "[";
+  bool first = true;
+  int count = 0;
+  
+  while (file.available() && count < 168) {
+    String line = file.readStringUntil('\n');
+    int comma1 = line.indexOf(',');
+    int comma2 = line.indexOf(',', comma1 + 1);
+    
+    if (comma1 > 0 && comma2 > 0) {
+      unsigned long timestamp = line.substring(0, comma1).toInt();
+      float weight = line.substring(comma1 + 1, comma2).toFloat();
+      
+      if (!first) {
+        labels += ",";
+        weights += ",";
+      }
+      
+      // Convertir timestamp en heure lisible
+      int hours = (timestamp / 3600) % 24;
+      labels += "\"" + String(hours) + "h\"";
+      weights += String(weight, 2);
+      
+      first = false;
+      count++;
+    }
+  }
+  
+  labels += "]";
+  weights += "]";
+  file.close();
+  
+  String json = "{\"labels\":" + labels + ",\"weights\":" + weights + "}";
+  server.send(200, "application/json", json);
+}
+
+void handleExport() {
+  File file = FFat.open("/data/mesures.csv", FILE_READ);
+  if (!file) {
+    server.send(404, "text/plain", "No data");
+    return;
+  }
+  
+  server.streamFile(file, "text/csv");
+  file.close();
+}
+
+void handleTareAPI() {
+  modeTare();
+  server.send(200, "text/plain", "OK");
+}
+
+void handleCalibrateAPI() {
+  if (server.hasArg("factor")) {
+    calibrationFactor = server.arg("factor").toFloat();
+    scale.set_scale(calibrationFactor);
+    server.send(200, "text/plain", "OK");
+  } else {
+    server.send(400, "text/plain", "Missing factor");
+  }
+}
+
+void handleDeleteData() {
+  FFat.remove("/data/mesures.csv");
+  server.send(200, "text/plain", "OK");
+}
+
+void arreterServeurWeb() {
+  server.stop();
+  WiFi.softAPdisconnect(true);
+  WiFi.mode(WIFI_OFF);
+  webServerActive = false;
+  FFat.end();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// UTILITAIRES
+// ═══════════════════════════════════════════════════════════════════════
+
+float lireBatterie() {
+  int adc = analogRead(BATTERY_ADC_PIN);
+  return (adc / 4095.0) * 3.3 * 2.0;
+}
+
+bool verifierBatterie() {
+  float voltage = lireBatterie();
+  Serial.printf("Batterie: %.2fV\n", voltage);
+  return voltage >= BATTERY_MIN_VOLTAGE;
+}
+
+float lireTemperature() {
+  // Utiliser température interne ESP32 (approximative)
+  return temperatureRead();
+}
+
+void configurerDeepSleep() {
+  // Réveil toutes les heures OU par bouton
+  esp_sleep_enable_timer_wakeup(MEASUREMENT_INTERVAL_SEC * 1000000ULL);
+  
+  uint64_t ext1_mask = (1ULL << BUTTON_TARE_PIN) | (1ULL << BUTTON_RELEVE_PIN);
+  esp_sleep_enable_ext1_wakeup(ext1_mask, ESP_EXT1_WAKEUP_ANY_HIGH);
+  
+  Serial.println("Deep Sleep...");
+  Serial.flush();
+  delay(100);
+  
+  esp_deep_sleep_start();
+}
