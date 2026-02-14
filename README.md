@@ -9,7 +9,7 @@ Créer un système de pesée de ruche accessible via smartphone, sans Internet, 
 
 ESP32-C3 SuperMini1 ~2€ AliExpressModule 
 
-HX7111 ~1€ AliExpress Cellules de charge 50kg 4~3€/pièce AliExpress
+HX7111 1€ AliExpress Cellules de charge 50kg 4 à 3€/pièce AliExpress
 
 Batterie LiPo 2000mAh 1~3€ AmazonModule TP4056 (charge) 1~0,50€ AliExpress
 
