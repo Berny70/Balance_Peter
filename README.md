@@ -11,11 +11,15 @@ ESP32-C3 SuperMini1 ~2€ AliExpressModule
 
 HX7111 1€ AliExpress Cellules de charge 50kg 4 à 3€/pièce AliExpress
 
-Batterie LiPo 2000mAh 1~3€ AmazonModule TP4056 (charge) 1~0,50€ AliExpress
+Batterie LiPo 2000mAh 1 à 3€ AmazonModule TP4056 (charge) 1 à 0,50€ AliExpress
 
-Panneau solaire 5V 1W 1~3€ AliExpress
+Panneau solaire 5V 1W 1 à3€ AliExpress
 
-Boîtier étanche1~5€ LocalTotal : ~30-35€ Structure mécanique
+Boîtier étanche1~5€ Local
+
+Total : à 30-35€ 
+
+Structure mécanique
 
 Plateau en bois/métal (40x40cm minimum)
 
