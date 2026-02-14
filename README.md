@@ -7,15 +7,15 @@ Créer un système de pesée de ruche accessible via smartphone, sans Internet, 
 
 📋 MATÉRIEL NÉCESSAIRE
 
-ESP32-C3 SuperMini1~2€AliExpressModule 
+ESP32-C3 SuperMini1 ~2€ AliExpressModule 
 
-HX7111~1€AliExpressCellules de charge 50kg4~3€/pièceAliExpress
+HX7111 ~1€ AliExpress Cellules de charge 50kg 4~3€/pièce AliExpress
 
-Batterie LiPo 2000mAh1~3€AmazonModule TP4056 (charge)1~0,50€AliExpress
+Batterie LiPo 2000mAh 1~3€ AmazonModule TP4056 (charge) 1~0,50€ AliExpress
 
-Panneau solaire 5V 1W1~3€AliExpress
+Panneau solaire 5V 1W 1~3€ AliExpress
 
-Boîtier étanche1~5€LocalTotal : ~30-35€Structure mécanique
+Boîtier étanche1~5€ LocalTotal : ~30-35€ Structure mécanique
 
 Plateau en bois/métal (40x40cm minimum)
 
